@@ -1,0 +1,75 @@
+name: CI Pipeline
+
+on:
+  pull_request:
+    branches: [ main ]
+
+permissions:
+  contents: read
+  pull-requests: write
+
+jobs:
+  validate:
+    runs-on: ubuntu-latest
+    name: Validate Site
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Validate required files exist
+        run: |
+          echo "Checking required files..."
+          MISSING=""
+          for f in index.html style.css script.js staticwebapp.config.json; do
+            if [ ! -f "$f" ]; then
+              MISSING="$MISSING $f"
+            fi
+          done
+          if [ -n "$MISSING" ]; then
+            echo "::error::Missing required files:$MISSING"
+            exit 1
+          fi
+          echo "✅ All required files present"
+
+      - name: Validate HTML structure
+        run: |
+          echo "Checking HTML structure..."
+          if ! grep -q '<html' index.html; then
+            echo "::error::index.html missing <html> tag"
+            exit 1
+          fi
+          if ! grep -q '</html>' index.html; then
+            echo "::error::index.html missing closing </html> tag"
+            exit 1
+          fi
+          if ! grep -q '<head>' index.html; then
+            echo "::error::index.html missing <head> section"
+            exit 1
+          fi
+          echo "✅ HTML structure valid"
+
+      - name: Validate image URLs point to blob storage
+        run: |
+          echo "Checking image URLs..."
+          BLOB_URL="stpaulaportfolio.blob.core.windows.net/images"
+          
+          # Check for any remaining relative image paths that should be blob URLs
+          if grep -rn '\.\./images/' index.html style.css 2>/dev/null; then
+            echo "::error::Found relative image paths (../images/). All images should use Azure Blob Storage URLs."
+            exit 1
+          fi
+          
+          # Verify blob storage URLs are used
+          if grep -q "$BLOB_URL" index.html; then
+            IMG_COUNT=$(grep -o "$BLOB_URL" index.html | wc -l)
+            echo "✅ Found $IMG_COUNT blob storage image references in index.html"
+          else
+            echo "::warning::No blob storage image URLs found in index.html"
+          fi
+
+      - name: Validate JSON config
+        run: |
+          echo "Checking staticwebapp.config.json..."
+          python3 -m json.tool staticwebapp.config.json > /dev/null
+          echo "✅ staticwebapp.config.json is valid JSON"
